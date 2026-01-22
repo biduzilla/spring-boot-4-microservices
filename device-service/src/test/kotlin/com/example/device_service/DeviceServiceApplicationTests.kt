@@ -5,15 +5,19 @@ import com.example.device_service.model.DeviceType
 import com.example.device_service.repository.DeviceRepository
 import com.example.device_service.utils.logger
 import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 
 @SpringBootTest
 class DeviceServiceApplicationTests(
+    @Autowired
     private val deviceRepository: DeviceRepository,
 ) {
-    val log = logger()
-    val NUMBER_OF_DEVICES = 200
-    val USERS = 10
+    companion object{
+        val log = logger()
+        val NUMBER_OF_DEVICES = 200
+        val USERS = 10
+    }
 
     @Test
     fun contextLoads() {
