@@ -23,9 +23,14 @@ class UserController(
 
     @GetMapping("/{id}")
     fun getUserByID(@PathVariable id: Long): ResponseEntity<UserDTO> =
-        userService.getUserByID(id)
-            ?.let { ResponseEntity.ok(it) }
-            ?: ResponseEntity.notFound().build()
+        try {
+            val user = userService.getUserByID(id)
+                ?: return ResponseEntity.notFound().build()
+
+            ResponseEntity.ok(user)
+        } catch (ex: Exception) {
+            ResponseEntity.notFound().build()
+        }
 
     @PutMapping("/{id}")
     fun updateUser(
