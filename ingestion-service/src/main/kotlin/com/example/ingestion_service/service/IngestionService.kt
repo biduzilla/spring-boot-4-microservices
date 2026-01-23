@@ -3,7 +3,7 @@ package com.example.ingestion_service.service
 import com.example.ingestion_service.dto.EnergyUsageDto
 import com.example.ingestion_service.dto.toEvent
 import com.example.ingestion_service.utils.logger
-import com.example.kafta.event.EnergyUsageEvent
+import com.example.kafka.event.EnergyUsageEvent
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Service
 

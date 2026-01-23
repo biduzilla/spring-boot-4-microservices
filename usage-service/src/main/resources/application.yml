@@ -1,0 +1,40 @@
+spring:
+  application:
+    name: usage-service
+
+  kafka:
+    bootstrap-servers: localhost:9094
+
+    consumer:
+      group-id: usage-service
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring:
+          json:
+            type:
+              mapping: energyUsageEvent:com.example.kafka.event.EnergyUsageEvent
+
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+
+    template:
+      default-topic: energy-alerts
+
+server:
+  port: 8083
+
+influx:
+  url: http://localhost:8072
+  token: my-token
+  org: leetjourney
+  bucket: usage-bucket
+
+device:
+  service:
+    url: http://localhost:8081/api/v1/device
+
+user:
+  service:
+    url: http://localhost:8080/api/v1/user

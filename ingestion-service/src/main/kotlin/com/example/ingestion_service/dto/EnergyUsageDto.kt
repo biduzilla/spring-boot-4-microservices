@@ -1,6 +1,6 @@
 package com.example.ingestion_service.dto
 
-import com.example.kafta.event.EnergyUsageEvent
+import com.example.kafka.event.EnergyUsageEvent
 import com.fasterxml.jackson.annotation.JsonFormat
 import java.time.Instant
 

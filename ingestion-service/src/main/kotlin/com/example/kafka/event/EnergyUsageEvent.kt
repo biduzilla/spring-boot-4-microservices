@@ -1,4 +1,4 @@
-package com.example.kafta.event
+package com.example.kafka.event
 
 import com.fasterxml.jackson.annotation.JsonFormat
 import java.time.Instant
