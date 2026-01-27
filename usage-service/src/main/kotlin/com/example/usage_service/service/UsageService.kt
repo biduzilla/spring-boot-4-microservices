@@ -24,9 +24,9 @@ class UsageService(
     private val deviceClient: DeviceClient,
     private val userClient: UserClient,
     private val kafkaTemplate: KafkaTemplate<String, AlertingEvent>,
-    @Value($$"${influx.bucket}")
+    @Value("\${influx.bucket}")
     private val influxBucket: String,
-    @Value($$"${influx.org}")
+    @Value("\${influx.org}")
     private val influxOrg: String,
 ) {
 
