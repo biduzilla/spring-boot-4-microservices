@@ -4,6 +4,7 @@ import com.example.kafka.event.AlertingEvent
 import com.example.kafka.event.EnergyUsageEvent
 import com.example.usage_service.client.DeviceClient
 import com.example.usage_service.client.UserClient
+import com.example.usage_service.dto.UserDto
 import com.example.usage_service.model.DeviceEnergy
 import com.example.usage_service.utils.logger
 import com.influxdb.client.InfluxDBClient
