@@ -47,87 +47,196 @@ class UsageService(
             .writePoint(influxBucket, influxOrg, point)
     }
 
+//    @Scheduled(cron = "*/10 * * * * *")
+//    fun aggregateDeviceEnergyUsage() {
+//        val now = Instant.now()
+//        val oneHourAgo = now.minus(Duration.ofHours(1))
+//
+//        val fluxQuery = """
+//            from(bucket: "$influxBucket")
+//              |> range(start: time(v: "$oneHourAgo"), stop: time(v: "$now"))
+//              |> filter(fn: (r) => r["_measurement"] == "energy_usage")
+//              |> filter(fn: (r) => r["_field"] == "energyConsumed")
+//              |> group(columns: ["deviceId"])
+//              |> sum(column: "_value")
+//        """.trimIndent()
+//
+//        val tables = influxDBClient
+//            .queryApi
+//            .query(fluxQuery, influxOrg)
+//
+//        val deviceEnergies = tables
+//            .flatMap { it.records }
+//            .mapNotNull { record ->
+//                val deviceId = record.getValueByKey("deviceId") as? String ?: return@mapNotNull null
+//                val energy = (record.getValueByKey("_value") as? Number)?.toDouble() ?: 0.0
+//
+//                DeviceEnergy(
+//                    deviceId = deviceId.toLong(),
+//                    energyConsumed = energy
+//                )
+//            }
+//
+//        log.info("Aggregated device energies: {}", deviceEnergies)
+//
+//        deviceEnergies.forEach { deviceEnergy ->
+//            runCatching {
+//                deviceClient.getDeviceById(deviceEnergy.deviceId)
+//            }.onSuccess { device ->
+//                deviceEnergy.userId = device?.userId
+//            }.onFailure {
+//                log.warn("Failed to fetch device {}", deviceEnergy.deviceId)
+//            }
+//        }
+//
+//        val validDevices = deviceEnergies.filter { it.userId != null }
+//        val userDeviceEnergyMap = validDevices.groupBy { it.userId!! }
+//        val userThresholdMap = mutableMapOf<Long, Double>()
+//        val userEmailMap = mutableMapOf<Long, String>()
+//
+//        userDeviceEnergyMap.keys.forEach { userId ->
+//            runCatching {
+//                userClient.getUserById(userId)
+//            }.onSuccess { user ->
+//                if (user != null && user.alerting) {
+//                    userThresholdMap[userId] = user.energyAlertingThreshold
+//                    userEmailMap[userId] = user.email
+//                }
+//            }.onFailure {
+//                log.warn("Failed to fetch user {}", userId)
+//            }
+//        }
+//
+//        userThresholdMap.forEach { (userId, threshold) ->
+//            val totalConsumption = userDeviceEnergyMap[userId]
+//                ?.sumOf { it.energyConsumed }
+//                ?: 0.0
+//
+//            if (totalConsumption > threshold) {
+//                val alert = AlertingEvent(
+//                    userId = userId,
+//                    message = "Energy consumption threshold exceeded",
+//                    threshold = threshold,
+//                    energyConsumed = totalConsumption,
+//                    email = userEmailMap[userId]
+//                )
+//
+//                kafkaTemplate.send("energy-alerts", alert)
+//
+//                log.info(
+//                    "ALERT userId={}, total={}, threshold={}",
+//                    userId, totalConsumption, threshold
+//                )
+//            }
+//        }
+//    }
+
     @Scheduled(cron = "*/10 * * * * *")
     fun aggregateDeviceEnergyUsage() {
+        val deviceEnergies = fetchDeviceEnergiesLastHour()
+        log.info("Aggregated device energies: {}", deviceEnergies)
+        if (deviceEnergies.isEmpty()) return
+
+        val deviceUserMap = resolveDevicesUsers(deviceEnergies)
+        val userConsumptions = aggregateByUser(deviceEnergies, deviceUserMap)
+        val users = fetchUsers(userConsumptions.keys)
+
+        sendAlertsIfNeeded(userConsumptions, users)
+    }
+
+
+    private fun fetchDeviceEnergiesLastHour(): List<DeviceEnergy> {
         val now = Instant.now()
         val oneHourAgo = now.minus(Duration.ofHours(1))
 
         val fluxQuery = """
-            from(bucket: "$influxBucket")
-              |> range(start: time(v: "$oneHourAgo"), stop: time(v: "$now"))
-              |> filter(fn: (r) => r["_measurement"] == "energy_usage")
-              |> filter(fn: (r) => r["_field"] == "energyConsumed")
-              |> group(columns: ["deviceId"])
-              |> sum(column: "_value")
-        """.trimIndent()
+        from(bucket: "$influxBucket")
+          |> range(start: time(v: "$oneHourAgo"), stop: time(v: "$now"))
+          |> filter(fn: (r) => r["_measurement"] == "energy_usage")
+          |> filter(fn: (r) => r["_field"] == "energyConsumed")
+          |> group(columns: ["deviceId"])
+          |> sum(column: "_value")
+    """.trimIndent()
 
-        val tables = influxDBClient
-            .queryApi
+        return influxDBClient.queryApi
             .query(fluxQuery, influxOrg)
-
-        val deviceEnergies = tables
             .flatMap { it.records }
             .mapNotNull { record ->
                 val deviceId = record.getValueByKey("deviceId") as? String ?: return@mapNotNull null
-                val energy = (record.getValueByKey("_value") as? Number)?.toDouble() ?: 0.0
+                val energy = (record.getValueByKey("_value") as? Number)?.toDouble() ?: return@mapNotNull null
 
-                DeviceEnergy(
-                    deviceId = deviceId.toLong(),
-                    energyConsumed = energy
-                )
+                DeviceEnergy(deviceId.toLong(), energy)
             }
+    }
 
-        log.info("Aggregated device energies: {}", deviceEnergies)
+    private fun resolveDevicesUsers(
+        deviceEnergies: List<DeviceEnergy>
+    ): Map<Long, Long> {
+        return deviceEnergies
+            .map { it.deviceId }
+            .distinct()
+            .associateWith { deviceId ->
+                runCatching {
+                    deviceClient.getDeviceById(deviceId)?.userId
+                }.getOrElse {
+                    log.warn("Failed to fetch device {}", deviceId, it)
+                    null
+                }
+            }.filterValues { it != null }
+            .mapValues { it.value!! }
+    }
 
-        deviceEnergies.forEach { deviceEnergy ->
-            runCatching {
-                deviceClient.getDeviceById(deviceEnergy.deviceId)
-            }.onSuccess { device ->
-                deviceEnergy.userId = device?.userId
-            }.onFailure {
-                log.warn("Failed to fetch device {}", deviceEnergy.deviceId)
+    private fun aggregateByUser(
+        deviceEnergies: List<DeviceEnergy>,
+        deviceUserMap: Map<Long, Long>
+    ): Map<Long, Double> {
+        return deviceEnergies
+            .mapNotNull { energy ->
+                deviceUserMap[energy.deviceId]?.let { userId ->
+                    userId to energy.energyConsumed
+                }
             }
-        }
+            .groupBy({ it.first }, { it.second })
+            .mapValues { it.value.sum() }
+    }
 
-        val validDevices = deviceEnergies.filter { it.userId != null }
-        val userDeviceEnergyMap = validDevices.groupBy { it.userId!! }
-        val userThresholdMap = mutableMapOf<Long, Double>()
-        val userEmailMap = mutableMapOf<Long, String>()
-
-        userDeviceEnergyMap.keys.forEach { userId ->
+    private fun fetchUsers(userIds: Set<Long>): Map<Long, UserDto> {
+        return userIds.associateWith { userId ->
             runCatching {
                 userClient.getUserById(userId)
-            }.onSuccess { user ->
-                if (user != null && user.alerting) {
-                    userThresholdMap[userId] = user.energyAlertingThreshold
-                    userEmailMap[userId] = user.email
-                }
-            }.onFailure {
-                log.warn("Failed to fetch user {}", userId)
+            }.getOrElse {
+                log.warn("Failed to fetch user {}", userId, it)
+                null
             }
-        }
+        }.filterValues { it != null }
+            .mapValues { it.value!! }
+    }
 
-        userThresholdMap.forEach { (userId, threshold) ->
-            val totalConsumption = userDeviceEnergyMap[userId]
-                ?.sumOf { it.energyConsumed }
-                ?: 0.0
+    private fun sendAlertsIfNeeded(
+        userConsumptions: Map<Long, Double>,
+        users: Map<Long, UserDto>
+    ) {
+        userConsumptions.forEach { (userId, totalConsumption) ->
+            val user = users[userId] ?: return@forEach
+            if (!user.alerting) return@forEach
 
-            if (totalConsumption > threshold) {
+            if (totalConsumption > user.energyAlertingThreshold) {
                 val alert = AlertingEvent(
                     userId = userId,
                     message = "Energy consumption threshold exceeded",
-                    threshold = threshold,
+                    threshold = user.energyAlertingThreshold,
                     energyConsumed = totalConsumption,
-                    email = userEmailMap[userId]
+                    email = user.email
                 )
 
                 kafkaTemplate.send("energy-alerts", alert)
 
                 log.info(
                     "ALERT userId={}, total={}, threshold={}",
-                    userId, totalConsumption, threshold
+                    userId, totalConsumption, user.energyAlertingThreshold
                 )
             }
         }
     }
+
 }
