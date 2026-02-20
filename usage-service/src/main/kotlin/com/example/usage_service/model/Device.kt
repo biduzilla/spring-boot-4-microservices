@@ -1,18 +1,18 @@
-package com.example.usage_service.dto
+package com.example.usage_service.model
 
-import com.example.usage_service.model.Device
+import com.example.usage_service.dto.DeviceDto
 
-data class DeviceDto(
+data class Device(
     val id: Long,
     val name: String,
     val type: String,
     val location: String,
     val userId: Long,
-    val energyConsumed: Double = 0.0
+    var energyConsumed: Double
 )
 
-fun DeviceDto.toModel(): Device {
-    return Device(
+fun Device.toDto(): DeviceDto {
+    return DeviceDto(
         id,
         name,
         type,

@@ -1,0 +1,18 @@
+spring:
+  application:
+    name: insight-service
+
+  ai:
+    ollama:
+      chat:
+        options:
+          model: deepseek-coder
+      init:
+        pull-model-strategy: never
+
+server:
+  port: 8085
+
+usage:
+  service:
+    url: http://localhost:8083/api/v1/usage

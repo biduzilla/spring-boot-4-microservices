@@ -1,10 +1,10 @@
 package com.example.device_service.service
 
 import com.example.device_service.dto.DeviceDto
+import com.example.device_service.dto.toDevice
 import com.example.device_service.entity.toDto
 import com.example.device_service.exception.DeviceNotFoundException
 import com.example.device_service.repository.DeviceRepository
-import com.example.device_service.dto.toDevice
 import org.springframework.stereotype.Service
 
 @Service

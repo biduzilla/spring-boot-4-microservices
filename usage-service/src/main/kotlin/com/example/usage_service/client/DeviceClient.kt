@@ -8,7 +8,7 @@ import org.springframework.web.util.UriComponentsBuilder
 
 @Component
 class DeviceClient(
-    @Value($$"${device.service.url}")
+    @Value("\${device.service.url}")
     private val baseUrl: String,
     private val restTemplate: RestTemplate = RestTemplate()
 ) {
@@ -19,5 +19,18 @@ class DeviceClient(
             .toUriString()
 
         return restTemplate.getForObject(url, DeviceDto::class.java)
+    }
+
+    fun getAllDevicesForUser(userId: Long): List<DeviceDto> {
+        var url = UriComponentsBuilder
+            .fromUriString(baseUrl)
+            .path("/user/{userId")
+            .buildAndExpand(userId)
+            .toUriString()
+
+        val response = restTemplate.getForEntity(url, Array<DeviceDto>::class.java)
+        val devices = response.body
+
+        return devices?.toList() ?: emptyList()
     }
 }

@@ -4,8 +4,11 @@ import com.example.kafka.event.AlertingEvent
 import com.example.kafka.event.EnergyUsageEvent
 import com.example.usage_service.client.DeviceClient
 import com.example.usage_service.client.UserClient
+import com.example.usage_service.dto.UsageDto
 import com.example.usage_service.dto.UserDto
+import com.example.usage_service.dto.toModel
 import com.example.usage_service.model.DeviceEnergy
+import com.example.usage_service.model.toDto
 import com.example.usage_service.utils.logger
 import com.influxdb.client.InfluxDBClient
 import com.influxdb.client.domain.WritePrecision
@@ -32,6 +35,91 @@ class UsageService(
 
     companion object {
         val log = logger()
+    }
+
+    fun getXDaysUsageForUser(userId: Long, days: Int): UsageDto {
+        log.info("Getting usage for userId $userId over past $days")
+        val devicesDto = deviceClient.getAllDevicesForUser(userId)
+
+        val devices = devicesDto.map { it.toModel() }.toMutableList()
+
+        if (devices.isEmpty()) {
+            return UsageDto(
+                userId,
+                emptyList()
+            )
+        }
+
+        val deviceIdStrings = devices
+            .map { it.id }
+            .map { it.toString() }
+
+        val now = Instant.now()
+        val start = now.minusSeconds(days.toLong() * 24 * 3600)
+
+        val deviceFilter = deviceIdStrings
+            .joinToString(" or ") { """r["deviceId"] == "$it"""" }
+
+        val fluxQuery = """
+        from(bucket: "$influxBucket")
+          |> range(start: time(v: "$start"), stop: time(v: "$now"))
+          |> filter(fn: (r) => r["_measurement"] == "energy_usage")
+          |> filter(fn: (r) => r["_field"] == "energyConsumed")
+          |> filter(fn: (r) => $deviceFilter)
+          |> group(columns: ["deviceId"])
+          |> sum(column: "_value")
+    """.trimIndent()
+
+        val aggregatedMap = mutableMapOf<Long, Double>()
+
+        try {
+            val queryApi = influxDBClient.queryApi
+            val tables = queryApi.query(fluxQuery, influxOrg)
+
+            for (table in tables) {
+                for (record in table.records) {
+                    val deviceIdStr = record.getValueByKey("deviceId")
+                        ?.toString() ?: continue
+
+                    val energyConsumed =
+                        (record.getValueByKey("_value") as? Number)?.toDouble() ?: 0.0
+
+                    try {
+                        val deviceId = deviceIdStr.toLong()
+                        aggregatedMap[deviceId] =
+                            aggregatedMap.getOrDefault(deviceId, 0.0) + energyConsumed
+                    } catch (e: NumberFormatException) {
+                        log.warn("Failed to parse deviceId from flux record: {}", deviceIdStr)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            log.error(
+                "Failed to query InfluxDB for user {} usage over {} days: {}",
+                userId,
+                days,
+                e.message
+            )
+            devices.forEach { it.energyConsumed = 0.0 }
+
+            return UsageDto(
+                userId,
+                emptyList()
+            )
+        }
+
+        devices.forEach {
+            it.energyConsumed = aggregatedMap.getOrDefault(it.id, 0.0)
+        }
+
+        log.info("Aggregated energy consumption for userId {}: {}", userId, aggregatedMap)
+
+        val resultDevices = devices.map { it.toDto() }
+
+        return UsageDto(
+            userId,
+            resultDevices
+        )
     }
 
     @KafkaListener(topics = ["energy-usage"], groupId = "usage-service")
